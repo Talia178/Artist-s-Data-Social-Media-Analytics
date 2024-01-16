@@ -1,0 +1,335 @@
+---
+title: "Artist's Data Exploration & Visualization"
+output: github_document
+author: "Thao Tran"
+date: "2024-01-15"
+editor_options: 
+  markdown: 
+    wrap: 72
+    
+---
+
+Project Description:
+Acting as a well-known artist’s/band’s manager, using social media analytics to help improve their popularity.
+
+---
+
+Set up:
+
+```{r setup, include=FALSE}
+# set options for R markdown knitting
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(linewidth=80)
+```
+
+```{r knitr line wrap setup, include=FALSE}
+# set up line wrapping in MD knit output
+library(knitr)
+hook_output = knit_hooks$get("output")
+knit_hooks$set(output = function(x, options) 
+{
+ # this hook is used only when the linewidth option is not NULL
+ if (!is.null(n <- options$linewidth)) 
+ {
+ x = knitr:::split_lines(x)
+ # any lines wider than n should be wrapped
+ if (any(nchar(x) > n)) 
+ x = strwrap(x, width = n)
+ x = paste(x, collapse = "\n")
+ }
+ hook_output(x, options)
+})
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## INSTALL NECESSARY PACKAGES
+
+```{r}
+
+install.packages("remotes")
+library(remotes)
+
+# install GitHub version of vosonSML 0.32.10
+install_github("vosonlab/vosonSML")
+library(vosonSML)
+
+# install GitHub version of rtweet 1.1.0.9001
+install_github("ropensci/rtweet")
+
+# Load other packages required for this session into library
+library(magrittr)
+library(igraph)
+library(tidyr)
+library(tidytext)
+library(stopwords)
+library(dplyr)
+
+# get twitter App name, API key, API secret, Access token, Access token secret
+my_app_name <- "Class7230ICT"
+my_api_key <- "5k06tQOIdyTsT9xR914kY3epo"
+my_api_secret <- "FsLe2v57PVk1L8Pt9ez95KQ0ROPMrOJh5SySyJRlwOwDfMfRum"
+my_access_token <- "1632183185256878080-DgxyxOrMCJcKZ38xXb1gQSs8svlQBo"
+my_access_token_secret <- "euv2yxyqjLlDP8CNWttAPGqWJ07nOArFNPRmZsLJlOaPh"
+
+```
+
+#-----------------------------------------------------------------------------#
+
+## COLLECT DATA
+
+To comprehensively analyze Justin Bieber's fan engagement and potential strategic
+improvements, I strategically selected keywords reflecting fan behaviors and
+artist activities. Leveraging Twitter API access, I collected the most recent
+1000 tweets and retweets containing search terms such as "Justin Bieber" and
+"Justin Bieber tour," focusing on fans' interest in his live performances and
+global tours.
+
+```{r}
+# Search terms topic 1 - FAN ----
+twitter_fan_data <- Authenticate("twitter",
+                             appName = my_app_name,
+                             apiKey = my_api_key,
+                             apiSecret = my_api_secret,
+                             accessToken = my_access_token,
+                             accessTokenSecret = my_access_token_secret) %>%
+  Collect(searchTerm = "Justin Bieber OR Justin Bieber tour",
+          searchType = "recent",
+          numTweets = 1000,
+          lang = "en",
+          includeRetweets = TRUE,
+          writeToFile = TRUE,
+          verbose = TRUE)
+head(twitter_fan_data$tweets)
+```
+
+Expanding the dataset, I incorporated keywords like "Justin Bieber album" and
+"Justin Bieber hits" to gauge audience reactions to his music releases, aiming
+to identify popular albums and understand the factors contributing to their success.
+
+```{r}
+# Search terms topic 2 - MUSIC PRODUCT ----
+twitter_musicProduct_data <- Authenticate("twitter",
+                                 appName = my_app_name,
+                                 apiKey = my_api_key,
+                                 apiSecret = my_api_secret,
+                                 accessToken = my_access_token,
+                                 accessTokenSecret = my_access_token_secret) %>%
+  Collect(searchTerm = "Justin Bieber album OR Justin Bieber hit",
+          searchType = "recent",
+          numTweets = 1000,
+          lang = "en",
+          includeRetweets = TRUE,
+          writeToFile = TRUE,
+          verbose = TRUE)
+head(twitter_musicProduct_data$tweets)
+```
+
+Additionally, I explored collaboration dynamics with keywords "Justin Bieber
+collab" and "Justin Bieber ft," targeting fans of artists previously collaborated
+with Bieber. The outcomes aim to assess the success of these collaborations and
+provide insights for potential future partnerships, offering valuable strategies
+for enhancing Justin Bieber's overall popularity.
+
+```{r}
+# Search terms topic 3 - INTERESTED USERS ----
+twitter_relatedFan_data <- Authenticate("twitter",
+                                 appName = my_app_name,
+                                 apiKey = my_api_key,
+                                 apiSecret = my_api_secret,
+                                 accessToken = my_access_token,
+                                 accessTokenSecret = my_access_token_secret) %>%
+  Collect(searchTerm = "Justin Bieber collab OR Justin Bieber ft",
+          searchType = "recent",
+          numTweets = 1000,
+          lang = "en",
+          includeRetweets = TRUE,
+          writeToFile = TRUE,
+          verbose = TRUE)
+head(twitter_relatedFan_data$tweets)
+```
+
+#-----------------------------------------------------------------------------#
+
+## ACTOR NETWORK
+
+In order to identify the top 5 most influential users for the artist, I made an
+actor network for each topic of search terms I created. The data collection process
+provided data on important fans of Justin Bieber in the first actor network; revealed
+top users who care about the artist’s music products in the second network; and last
+but not least the third actor network pointed out the top 5 most influential interested
+users who may not be a fan but know about Justin Bieber and support his collaborations
+with other artists.
+
+From each search topic, we can find different related users. I pick out the top 2
+accounts from each list to perform further analysis as it can reveal various new
+aspects the artist may want to pay attention to so he can reach more audiences
+and increase his popularity in the future.
+
+### Actor Network 1 - FAN
+
+```{r}
+# Create actor network and graph from the data
+fan_network <- twitter_fan_data %>% Create("actor")
+fan_graph <- fan_network %>% Graph()
+
+# Write graph to file
+write.graph(fan_graph, file = "FanNetwork.graphml", format = "graphml")
+
+# Overwrite the 'name' attribute in the graph with the 'screen name' attribute
+V(fan_graph)$name <- V(fan_graph)$screen_name
+
+# Run Page Rank algorithm to find important users
+rank_fan <- sort(page_rank(fan_graph)$vector, decreasing = TRUE)
+head(rank_fan, n=5)
+```
+### Actor Network 2 - MUSIC PRODUCT
+
+```{r}
+musicProduct_network <- twitter_musicProduct_data %>% Create("actor")
+musicProduct_graph <- musicProduct_network %>% Graph()
+
+write.graph(musicProduct_graph, file = "MusicProduct.graphml", format = "graphml")
+
+V(musicProduct_graph)$name <- V(musicProduct_graph)$screen_name
+rank_musicProduct <- sort(page_rank(musicProduct_graph)$vector, decreasing = TRUE)
+head(rank_musicProduct, n=5)
+```
+### Actor Network 3 - INTERESTED USERS
+
+```{r}
+relatedFan_network <- twitter_relatedFan_data %>% Create("actor")
+relatedFan_graph <- relatedFan_network %>% Graph()
+
+write.graph(relatedFan_graph, file = "RelatedFan.graphml", format = "graphml")
+
+V(relatedFan_graph)$name <- V(relatedFan_graph)$screen_name
+rank_relatedFan <- sort(page_rank(relatedFan_graph)$vector, decreasing = TRUE)
+head(rank_relatedFan, n=5)
+```
+### CONCLUSION
+
+Due to the lack of methods to collect further information, I was unable to find
+many aspects these top users have in common other than the artist of choice. 
+However, it is interesting to see what other interests they have. The information
+we can get from the group of users related to search terms “Justin Bieber collab”
+& “Justin Bieber ft“ is actually quite notable. The artist has not only influenced
+his fan base but also reached some loyal fans of other artists from different
+cultures. As mentioned earlier, over the past few years Justin Bieber has been
+collaborating with many global artists who are outside of the U.S. music industry.
+However, he has not featured any Korean artists yet. As I researched more on this
+information, I noticed that there was a rumor of a collaboration between Justin
+& a famous K-pop band, but no music product has been created afterward. It may be
+the reason why K-pop fans started to show interest in our artist. That is an
+example Justin Bieber can consider and if we perform further analysis, there may
+be even more suggestions for more potential projects.
+
+#-----------------------------------------------------------------------------#
+
+## SEMANTIC NETWORK
+
+### Semantic Network 1 - FAN
+```{r}
+semantic_fan_network <- twitter_fan_data %>% Create("semantic")
+semantic_fan_graph <- semantic_fan_network %>% Graph()
+
+write.graph(semantic_fan_graph, file = "FanSemantic.graphml", format = "graphml")
+
+rank_semantic_fan <- sort(page_rank(semantic_fan_graph)$vector, decreasing = TRUE)
+head(rank_semantic_fan, n=10)
+```
+Most of the terms are mentions the artist’s latest product – album “Justice” and
+his world tour with the same name. That explains the appearance of the terms justice,
+world, live, and hashtag #justice. On the other hand, two hashtags #peace and #guns
+seem to be quite irrelevant to the artist. Some people used these hashtags in their
+tweets about Bieber just to get more viewers since they are both popular terms on
+social media. To sum up, most of the terms that appear together with the two keywords
+can lead audiences to the most updated news about the artist in general and about
+his live performances in particular.
+
+### Semantic Network 2 - MUSIC PRODUCT
+```{r}
+semantic_musicProduct_network <- twitter_musicProduct_data %>% Create("semantic")
+semantic_musicProduct_graph <- semantic_musicProduct_network %>% Graph()
+
+write.graph(semantic_musicProduct_graph, file = "ProductSemantic.graphml", format = "graphml")
+
+rank_semantic_musicProduct <- sort(page_rank(semantic_musicProduct_graph)$vector, decreasing = TRUE)
+head(rank_semantic_musicProduct, n=10)
+```
+The results can be divided into two groups, the first one may contain terms such
+as #music, #tunes, hit, and #hits which only open up general discussions on Justin
+Bieber’s songs. Another group contains #radio, #nowplaying, #onlineradio, radio
+which are used mostly by Twitter accounts of some online radio to attract Justin’s
+audiences to their platforms. In general, terms that appear together with the 2
+keywords only bring insight into some listeners’ reactions to the artist’s performance.
+
+### Semantic Network 3 - INTERESTED USERS
+```{r}
+semantic_relatedFan_network <- twitter_relatedFan_data %>% Create("semantic")
+semantic_relatedFan_graph <- semantic_relatedFan_network %>% Graph()
+
+write.graph(semantic_relatedFan_graph, file = "RelatedSemantic.graphml", format = "graphml")
+
+rank_semantic_relatedFan <- sort(page_rank(semantic_relatedFan_graph)$vector, decreasing = TRUE)
+head(rank_semantic_relatedFan, n=10)
+```
+The prominent hashtag #vh1playlist represents audience requests for VH1 Playlist,
+an Indian music television channel. By searching "justin bieber #Vh1Playlist,"
+I've identified a promising market for Justin Bieber's music products through
+daily fan requests, with crucial terms reflecting song names and strong engagement.
+Noteworthy collaborations with artists like Dan & Shay, Ludacris, Chance the Rapper,
+and Nicki Minaj continue to attract attention, offering potential inspiration for
+future compositions. In contrast, hashtags #thegudtymezshow and #thejaythegreatshow,
+specific to an online radio platform with minimal user engagement, provide limited
+insights. The term "essence" refers to a song featuring Justin Bieber by Afropop
+artists WizKid and Tems.
+
+#-----------------------------------------------------------------------------#
+
+## CALCULATE UNIQUE USERS
+
+```{r}
+# DATASET 1 - FAN
+
+# Create a dataframe for the data set
+dataFrame_twitter_fan <- data.frame(twitter_fan_data)
+head(dataFrame_twitter_fan)
+
+# Calculate unique users in the new dataframe just created using n_distinct() function from dplyr package
+n_distinct(dataFrame_twitter_fan$tweets.user_id)
+```
+
+```{r}
+# DATASET 2 - PRODUCT
+
+# Create a dataframe for the data set
+dataFrame_twitter_musicProduct <- data.frame(twitter_musicProduct_data)
+head(dataFrame_twitter_musicProduct)
+
+# Calculate unique users in the new dataframe just created using n_distinct() function from dplyr package
+n_distinct(dataFrame_twitter_musicProduct$tweets.user_id)
+```
+
+```{r}
+# DATASET 3 - INTERESTED USERS
+
+# Create a dataframe for the data set
+dataFrame_twitter_relatedFan <- data.frame(twitter_relatedFan_data)
+head(dataFrame_twitter_relatedFan)
+
+# Calculate unique users in the new dataframe just created using n_distinct() function from dplyr package
+n_distinct(dataFrame_twitter_relatedFan$tweets.user_id)
+```
+### CONCLUSION
+
+The results pointed out that even though I retrieved data from 1000 different tweets, nearly half of them
+were from the same Twitter users.
+
+
+
+
+
+
